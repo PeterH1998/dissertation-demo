@@ -2,6 +2,7 @@ name: Privacy Scan
 
 on:
   pull_request:
+  push:
 
 jobs:
   snyk:
@@ -9,17 +10,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-
       - name: Set up Snyk
         uses: snyk/actions/setup@v1
         with:
           version: latest
-
       - name: Run Snyk test
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
         run: snyk test --json-file-output=snyk-report.json
-
       - name: Upload Snyk report
         uses: actions/upload-artifact@v3
         with:
@@ -31,12 +29,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-
       - name: Run GitLeaks
         uses: zricethezav/gitleaks-action@v2
         with:
           args: detect --source . --report-format json --report-path gitleaks-report.json --config-path .gitleaks.toml
-
       - name: Upload GitLeaks report
         uses: actions/upload-artifact@v3
         with:
@@ -48,77 +44,58 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-
-      - name: Start webapp in Docker
+      - name: Start webapp container
         run: |
           docker run -d --name webapp \
-            -v ${{ github.workspace }}:/usr/src/app \
-            -w /usr/src/app \
-            -p 3000:3000 \
-            node:18 \
+            -v ${{ github.workspace }}:/app -w /app -p 3000:3000 node:18 \
             bash -lc "npm ci && npm start"
-
-      - name: Wait for webapp to be ready
+      - name: Wait for webapp
         run: sleep 20
-
       - name: Install ZAP CLI
         run: pip install zap-cli
-
-      - name: Start ZAP in Docker
+      - name: Start ZAP container
         run: |
           docker run -d --name zap \
-            -p 8080:8080 \
-            owasp/zap2docker-stable \
+            -p 8080:8080 owasp/zap2docker-stable \
             zap.sh -daemon -host 0.0.0.0 -port 8080 \
               -config scanner.attackOnStart=true \
               -config api.timeoutInSecs=600
-
-      - name: Wait for ZAP daemon
+      - name: Wait for ZAP
         run: sleep 15
-
       - name: Spider the app
-        run: zap-cli --zap-url http://localhost --zap-port 8080 spider http://localhost:3000
-
+        run: zap-cli --zap-url http://127.0.0.1 --zap-port 8080 spider http://127.0.0.1:3000
       - name: Active scan
-        run: zap-cli --zap-url http://localhost --zap-port 8080 active-scan --scanners all http://localhost:3000
-
+        run: zap-cli --zap-url http://127.0.0.1 --zap-port 8080 active-scan --scanners all http://127.0.0.1:3000
       - name: Export ZAP reports
         run: |
-          zap-cli --zap-url http://localhost --zap-port 8080 report -o zap-report.html -f html
-          zap-cli --zap-url http://localhost --zap-port 8080 report -o zap-report.json -f json
-
+          zap-cli --zap-url http://127.0.0.1 --zap-port 8080 report -o zap-report.html -f html
+          zap-cli --zap-url http://127.0.0.1 --zap-port 8080 report -o zap-report.json -f json
       - name: Upload ZAP reports
         uses: actions/upload-artifact@v3
         with:
           name: zap-report
-          path:
-            - zap-report.html
-            - zap-report.json
+          path: |
+            zap-report.html
+            zap-report.json
 
   pii-scan:
     name: Custom PII Scanner
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-
-      - name: Set up Python & venv
+      - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.9'
-
-      - name: Install scanner deps
+          python-version: "3.9"
+      - name: Install dependencies
         run: |
           python -m venv .venv
           source .venv/bin/activate
           pip install -r requirements.txt
-
       - name: Run PII scanner
         run: |
           source .venv/bin/activate
-          python src/scanner.py \
-            --output pii-report.json \
-            --allowlist .github/allowlist.yml
-
+          python src/scanner.py --output pii-report.json --allowlist .github/allowlist.yml
       - name: Upload PII report
         uses: actions/upload-artifact@v3
         with:
@@ -131,38 +108,36 @@ jobs:
     needs: [snyk, gitleaks, zap-scan, pii-scan]
     steps:
       - uses: actions/checkout@v3
-
-      - name: Download all reports
+      - name: Download Snyk report
         uses: actions/download-artifact@v3
         with:
           name: snyk-report
           path: reports
-      - uses: actions/download-artifact@v3
+      - name: Download GitLeaks report
+        uses: actions/download-artifact@v3
         with:
           name: gitleaks-report
           path: reports
-      - uses: actions/download-artifact@v3
+      - name: Download ZAP reports
+        uses: actions/download-artifact@v3
         with:
           name: zap-report
           path: reports
-      - uses: actions/download-artifact@v3
+      - name: Download PII report
+        uses: actions/download-artifact@v3
         with:
           name: pii-report
           path: reports
-
       - name: Set up Python for notifier
         uses: actions/setup-python@v4
         with:
-          python-version: '3.9'
-
+          python-version: "3.9"
       - name: Install notifier deps
         run: pip install requests
-
-      - name: Send to Slack
+      - name: Send Slack notification
         env:
           SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
         run: python scripts/slack_notify.py reports
-
       - name: Comment on PR
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
