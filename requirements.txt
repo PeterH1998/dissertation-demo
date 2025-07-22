@@ -1,0 +1,4 @@
+# custom PII scanner deps
+requests
+zap-cli
+# any other Python libs your scanner uses

@@ -5,19 +5,28 @@ on:
   push:
 
 jobs:
+  jobs:
   snyk:
     name: Snyk Dependency Scan
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: 18
+
       - name: Set up Snyk
         uses: snyk/actions/setup@v1
         with:
           version: latest
+
       - name: Run Snyk test
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
         run: snyk test --json-file-output=snyk-report.json
+
       - name: Upload Snyk report
         uses: actions/upload-artifact@v3
         with:
@@ -52,7 +61,10 @@ jobs:
       - name: Wait for webapp
         run: sleep 20
       - name: Install ZAP CLI
-        run: pip install zap-cli
+        run: |
+            apt-get update && apt-get install -y python3-pip
+            pip3 install zap-cli
+
       - name: Start ZAP container
         run: |
           docker run -d --name zap \
