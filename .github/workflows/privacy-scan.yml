@@ -1,7 +1,6 @@
 name: Privacy Scan
 
 on:
-  push:
   pull_request:
 
 jobs:
@@ -10,14 +9,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
+
       - name: Set up Snyk
         uses: snyk/actions/setup@v1
         with:
           version: latest
+
       - name: Run Snyk test
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
         run: snyk test --json-file-output=snyk-report.json
+
       - name: Upload Snyk report
         uses: actions/upload-artifact@v3
         with:
@@ -29,11 +31,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
+
       - name: Run GitLeaks
         uses: zricethezav/gitleaks-action@v2
         with:
           args: detect --source . --report-format json --report-path gitleaks-report.json --config-path .gitleaks.toml
-      - name: Upload Gitleaks report
+
+      - name: Upload GitLeaks report
         uses: actions/upload-artifact@v3
         with:
           name: gitleaks-report
@@ -42,64 +46,79 @@ jobs:
   zap-scan:
     name: OWASP ZAP Dynamic Scan
     runs-on: ubuntu-latest
-    services:
-      webapp:
-        image: node:18
-        options: >-
-          --health-cmd="curl --fail http://localhost:3000 || exit 1"
-          --health-interval=10s --health-timeout=5s --health-retries=5
-        ports: ["3000:3000"]
-        volumes: ./:/usr/src/app
-        working-directory: /usr/src/app
-        command: bash -lc "npm ci && npm start"
-      zap:
-        image: owasp/zap2docker-stable
-        ports: ["8080:8080"]
     steps:
       - uses: actions/checkout@v3
-      - name: Install zap-cli
-        run: pip install zap-cli
-      - name: Start ZAP daemon
+
+      - name: Start webapp in Docker
         run: |
-          zap-cli start --start-options "-daemon -host 0.0.0.0 -port 8080"
-      - name: Wait for Webapp
+          docker run -d --name webapp \
+            -v ${{ github.workspace }}:/usr/src/app \
+            -w /usr/src/app \
+            -p 3000:3000 \
+            node:18 \
+            bash -lc "npm ci && npm start"
+
+      - name: Wait for webapp to be ready
         run: sleep 20
-      - name: Spider the app
-        run: zap-cli -p 8080 spider http://webapp:3000
-      - name: Active scan
-        run: zap-cli -p 8080 active-scan --scanners all http://webapp:3000
-      - name: Export reports
+
+      - name: Install ZAP CLI
+        run: pip install zap-cli
+
+      - name: Start ZAP in Docker
         run: |
-          zap-cli -p 8080 report -o zap-report.html -f html
-          zap-cli -p 8080 report -o zap-report.json -f json
-      - name: Upload ZAP report
+          docker run -d --name zap \
+            -p 8080:8080 \
+            owasp/zap2docker-stable \
+            zap.sh -daemon -host 0.0.0.0 -port 8080 \
+              -config scanner.attackOnStart=true \
+              -config api.timeoutInSecs=600
+
+      - name: Wait for ZAP daemon
+        run: sleep 15
+
+      - name: Spider the app
+        run: zap-cli --zap-url http://localhost --zap-port 8080 spider http://localhost:3000
+
+      - name: Active scan
+        run: zap-cli --zap-url http://localhost --zap-port 8080 active-scan --scanners all http://localhost:3000
+
+      - name: Export ZAP reports
+        run: |
+          zap-cli --zap-url http://localhost --zap-port 8080 report -o zap-report.html -f html
+          zap-cli --zap-url http://localhost --zap-port 8080 report -o zap-report.json -f json
+
+      - name: Upload ZAP reports
         uses: actions/upload-artifact@v3
         with:
           name: zap-report
-          path: |
-            zap-report.html
-            zap-report.json
+          path:
+            - zap-report.html
+            - zap-report.json
 
   pii-scan:
     name: Custom PII Scanner
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
+
       - name: Set up Python & venv
         uses: actions/setup-python@v4
         with:
-          python-version: "3.9"
-      - name: Install dependencies
+          python-version: '3.9'
+
+      - name: Install scanner deps
         run: |
           python -m venv .venv
           source .venv/bin/activate
           pip install -r requirements.txt
+
       - name: Run PII scanner
         run: |
           source .venv/bin/activate
           python src/scanner.py \
             --output pii-report.json \
             --allowlist .github/allowlist.yml
+
       - name: Upload PII report
         uses: actions/upload-artifact@v3
         with:
@@ -113,23 +132,20 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
-      - name: Download Snyk report
+      - name: Download all reports
         uses: actions/download-artifact@v3
         with:
           name: snyk-report
           path: reports
-      - name: Download Gitleaks report
-        uses: actions/download-artifact@v3
+      - uses: actions/download-artifact@v3
         with:
           name: gitleaks-report
           path: reports
-      - name: Download ZAP reports
-        uses: actions/download-artifact@v3
+      - uses: actions/download-artifact@v3
         with:
           name: zap-report
           path: reports
-      - name: Download PII report
-        uses: actions/download-artifact@v3
+      - uses: actions/download-artifact@v3
         with:
           name: pii-report
           path: reports
@@ -137,7 +153,8 @@ jobs:
       - name: Set up Python for notifier
         uses: actions/setup-python@v4
         with:
-          python-version: "3.9"
+          python-version: '3.9'
+
       - name: Install notifier deps
         run: pip install requests
 
@@ -149,6 +166,4 @@ jobs:
       - name: Comment on PR
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh pr comment ${{ github.event.pull_request.number }} \
-            --body-file .github/pr_comment.md
+        run: gh pr comment ${{ github.event.pull_request.number }} --body-file .github/pr_comment.md
