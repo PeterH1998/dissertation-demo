@@ -1,0 +1,9 @@
+ignore_patterns:
+  emails:
+    - "noreply@mycompany.com"
+    - "test@example.com"
+  phones:
+    - "+1-555-000-0000"
+  ssns: []
+  ip_addresses: []
+  credit_cards: []
