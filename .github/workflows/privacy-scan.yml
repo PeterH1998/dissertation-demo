@@ -38,9 +38,9 @@ jobs:
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           args: detect --source . \
-               --report-format json \
-               --report-path gitleaks-report.json \
-               --config-path .gitleaks.toml
+                       --report-format json \
+                       --report-path gitleaks-report.json \
+                       --config-path .gitleaks.toml
 
       - uses: actions/upload-artifact@v3
         with:
