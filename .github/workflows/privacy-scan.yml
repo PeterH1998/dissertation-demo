@@ -35,10 +35,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          args: detect --source . \
-               --report-format json \
-               --report-path gitleaks-report.json \
-               --config-path .gitleaks.toml
+          args: detect … 
 
       - uses: actions/upload-artifact@v3
         with:
@@ -65,7 +62,7 @@ jobs:
         run: |
           docker rm -f zap || true
           docker run --rm -d --name zap \
-            -p 8080:8080 owasp/zap2docker-stable \
+            -p 8080:8080 ghcr.io/zaproxy/zaproxy:weekly \
             zap.sh -daemon -host 0.0.0.0 -port 8080 \
               -config scanner.attackOnStart=true \
               -config api.timeoutInSecs=600
