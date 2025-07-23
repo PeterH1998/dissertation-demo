@@ -1,11 +1,10 @@
 name: Privacy Scan
 
 on:
-  pull_request:
-  push:
+  pull_request: {}
+  push: {}
 
 jobs:
-  jobs:
   snyk:
     name: Snyk Dependency Scan
     runs-on: ubuntu-latest
