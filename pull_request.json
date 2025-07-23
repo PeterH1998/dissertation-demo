@@ -1,7 +1,8 @@
 {
   "repository": {
     "owner": { "login": "PeterH1998" },
-    "name": "dissertation-demo"
+    "name": "dissertation-demo",
+    "full_name": "PeterH1998/dissertation-demo"
   },
   "pull_request": { "number": 1 }
 }
