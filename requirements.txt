@@ -1,3 +1,4 @@
 # custom PII scanner deps
 requests
+pyyaml
 # any other Python libs your scanner uses
