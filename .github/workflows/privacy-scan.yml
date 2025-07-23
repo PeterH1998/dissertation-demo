@@ -6,6 +6,7 @@ on:
 
 jobs:
   snyk:
+    name: Snyk Dependency Scan
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
@@ -16,7 +17,7 @@ jobs:
       - name: Run Snyk test
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
-        run: snyk test --json-file-output=snyk-report.json
+        run: snyk test --file=package.json --json-file-output=snyk-report.json
 
       - uses: actions/upload-artifact@v3
         with:
@@ -28,12 +29,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
+
       - name: Run GitLeaks
         uses: zricethezav/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          args: detect --source . --report-format json --report-path gitleaks-report.json --config-path .gitleaks.toml
-      - name: Upload GitLeaks report
-        uses: actions/upload-artifact@v3
+          args: detect --source . \
+               --report-format json \
+               --report-path gitleaks-report.json \
+               --config-path .gitleaks.toml
+
+      - uses: actions/upload-artifact@v3
         with:
           name: gitleaks-report
           path: gitleaks-report.json
@@ -43,38 +50,41 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
+
       - name: Start webapp container
         run: |
           docker rm -f webapp || true
           docker run --rm -d --name webapp \
             -v ${{ github.workspace }}:/app -w /app -p 3000:3000 node:18 \
             bash -lc "npm ci && npm start"
+
       - name: Wait for webapp
         run: sleep 20
-      - name: Install ZAP CLI
-        run: |
-          apt-get update && apt-get install -y python3-pip
-          pip3 install zap-cli
 
       - name: Start ZAP container
         run: |
-          docker run -d --name zap \
+          docker rm -f zap || true
+          docker run --rm -d --name zap \
             -p 8080:8080 owasp/zap2docker-stable \
             zap.sh -daemon -host 0.0.0.0 -port 8080 \
               -config scanner.attackOnStart=true \
               -config api.timeoutInSecs=600
+
       - name: Wait for ZAP
         run: sleep 15
-      - name: Spider the app
-        run: zap-cli --zap-url http://127.0.0.1 --zap-port 8080 spider http://127.0.0.1:3000
-      - name: Active scan
-        run: zap-cli --zap-url http://127.0.0.1 --zap-port 8080 active-scan --scanners all http://127.0.0.1:3000
-      - name: Export ZAP reports
+
+      - name: Spider & Active scan & export reports
         run: |
-          zap-cli --zap-url http://127.0.0.1 --zap-port 8080 report -o zap-report.html -f html
-          zap-cli --zap-url http://127.0.0.1 --zap-port 8080 report -o zap-report.json -f json
-      - name: Upload ZAP reports
-        uses: actions/upload-artifact@v3
+          docker exec zap zap-full-scan.py \
+            -t http://host.docker.internal:3000 \
+            -r zap-report.html \
+            -f html
+          docker exec zap zap-full-scan.py \
+            -t http://host.docker.internal:3000 \
+            -r zap-report.json \
+            -f json
+
+      - uses: actions/upload-artifact@v3
         with:
           name: zap-report
           path: |
@@ -99,8 +109,7 @@ jobs:
         run: |
           source .venv/bin/activate
           python src/scanner.py --output pii-report.json --allowlist .github/allowlist.yml
-      - name: Upload PII report
-        uses: actions/upload-artifact@v3
+      - uses: actions/upload-artifact@v3
         with:
           name: pii-report
           path: pii-report.json
